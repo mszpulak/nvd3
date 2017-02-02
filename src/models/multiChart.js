@@ -21,7 +21,8 @@ nv.models.multiChart = function() {
         interactiveLayer = nv.interactiveGuideline(),
         useInteractiveGuideline = false,
         legendRightAxisHint = ' (right axis)',
-        duration = 250
+        duration = 250,
+        reduceXTicks = true
         ;
 
     //============================================================
@@ -84,6 +85,13 @@ nv.models.multiChart = function() {
             }
 
             var series1 = data.filter(function(d) {return !d.disabled && d.yAxis == 1})
+                .map(function(d) {
+                    return d.values.map(function(d,i) {
+                        return { x: getX(d), y: getY(d) }
+                    })
+                });
+
+             var series1_bars = data.filter(function(d) {return d.yAxis == 1 && d.type == 'bar'})
                 .map(function(d) {
                     return d.values.map(function(d,i) {
                         return { x: getX(d), y: getY(d) }
@@ -213,8 +221,24 @@ nv.models.multiChart = function() {
                 return a.map(function(aVal,i){return {x: aVal.x, y: aVal.y + b[i].y}})
             }).concat([{x:0, y:0}]) : [];
 
-            yScale1 .domain(yDomain1 || d3.extent(d3.merge(series1).concat(extraValue1), function(d) { return d.y } ))
+
+            if(bars1.stacked) {
+                var series1_zipped = d3.zip.apply(this,series1_bars);
+                var series1_stacked = d3.range(series1_zipped.length);
+                series1_zipped.forEach(function(series, i) {
+                    series1_stacked[i] = d3.sum(series,function(d) {return d.y} );
+                });
+
+                yScale1 .domain(yDomain1 || [0, d3.max(series1_stacked)])
+                    .range([0, availableHeight]);
+            }
+            else
+            {
+                 yScale1 .domain(yDomain1 || d3.extent(d3.merge(series1).concat(extraValue1), function(d) { return d.y } ))
                 .range([0, availableHeight]);
+            }
+
+
 
             yScale2 .domain(yDomain2 || d3.extent(d3.merge(series2).concat(extraValue2), function(d) { return d.y } ))
                 .range([0, availableHeight]);
@@ -242,6 +266,7 @@ nv.models.multiChart = function() {
             if(dataScatters2.length){d3.transition(scatters2Wrap).call(scatters2);}
 
             xAxis
+                .scale(bars1.xScale())
                 ._ticks( nv.utils.calcTicksX(availableWidth/100, data) )
                 .tickSize(-availableHeight, 0);
 
@@ -251,6 +276,7 @@ nv.models.multiChart = function() {
                 .call(xAxis);
 
             yAxis1
+
                 ._ticks( nv.utils.calcTicksY(availableHeight/36, data) )
                 .tickSize( -availableWidth, 0);
 
@@ -277,13 +303,24 @@ nv.models.multiChart = function() {
                 chart.update();
             });
 
+            var xTicks = g.select('.nv-x.nv-axis > g').selectAll('g');
+
+            if (reduceXTicks)
+                    xTicks
+                        .filter(function(d,i) {
+                            return i % Math.ceil(data[0].values.length / (availableWidth / 100)) !== 0;
+                        })
+                        .selectAll('text, line')
+                        .style('opacity', 0);
+
+
             if(useInteractiveGuideline){
                 interactiveLayer
                     .width(availableWidth)
                     .height(availableHeight)
                     .margin({left:margin.left, top:margin.top})
                     .svgContainer(container)
-                    .xScale(x);
+                    .xScale(bars1.xScale());
                 wrap.select(".nv-interactive").call(interactiveLayer);
             }
 
@@ -524,6 +561,7 @@ nv.models.multiChart = function() {
         noData:    {get: function(){return noData;}, set: function(_){noData=_;}},
         interpolate:    {get: function(){return interpolate;}, set: function(_){interpolate=_;}},
         legendRightAxisHint:    {get: function(){return legendRightAxisHint;}, set: function(_){legendRightAxisHint=_;}},
+        reduceXTicks:      {get: function(){return reduceXTicks;}, set: function(_){reduceXTicks=_;}},
 
         // options that require extra logic in the setter
         margin: {get: function(){return margin;}, set: function(_){

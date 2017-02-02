@@ -1,4 +1,4 @@
-/* nvd3 version 1.8.5-dev (https://github.com/novus/nvd3) 2016-12-08 */
+/* nvd3 version 1.8.5-dev (https://github.com/novus/nvd3) 2017-02-02 */
 (function(){
 
 // set up main nv object
@@ -572,9 +572,10 @@ nv.models.tooltip = function() {
         return d;
     };
 
-    // By default, the tooltip model renders a beautiful table inside a DIV.
-    // You can override this function if a custom tooltip is desired.
-    var contentGenerator = function(d) {
+    // By default, the tooltip model renders a beautiful table inside a DIV, returned as HTML
+    // You can override this function if a custom tooltip is desired. For instance, you could directly manipulate
+    // the DOM by accessing elem and returning false.
+    var contentGenerator = function(d, elem) {
         if (d === null) {
             return '';
         }
@@ -805,9 +806,9 @@ nv.models.tooltip = function() {
         nv.dom.write(function () {
             initTooltip();
             // Generate data and set it into tooltip.
-            // Bonus - If you override contentGenerator and return falsey you can use something like
-            //         React or Knockout to bind the data for your tooltip.
-            var newContent = contentGenerator(data);
+            // Bonus - If you override contentGenerator and return false, you can use something like
+            //         Angular, React or Knockout to bind the data for your tooltip directly to the DOM.
+            var newContent = contentGenerator(data, tooltip.node());
             if (newContent) {
                 tooltip.node().innerHTML = newContent;
             }
@@ -6886,8 +6887,10 @@ nv.models.lineChart = function() {
                     .call(legend);
 
                 if (legendPosition === 'bottom') {
-                    wrap.select('.nv-legendWrap')
-                        .attr('transform', 'translate(0,' + availableHeight +')');
+                     margin.bottom = xAxis.height() + legend.height();
+                     availableHeight = nv.utils.availableHeight(height, container, margin);
+                     g.select('.nv-legendWrap')
+                         .attr('transform', 'translate(0,' + (availableHeight + xAxis.height())  +')');
                 } else if (legendPosition === 'top') {
                     if (!marginTop && legend.height() !== margin.top) {
                         margin.top = legend.height();
@@ -9668,7 +9671,8 @@ nv.models.multiChart = function() {
         interactiveLayer = nv.interactiveGuideline(),
         useInteractiveGuideline = false,
         legendRightAxisHint = ' (right axis)',
-        duration = 250
+        duration = 250,
+        reduceXTicks = true
         ;
 
     //============================================================
@@ -9731,6 +9735,13 @@ nv.models.multiChart = function() {
             }
 
             var series1 = data.filter(function(d) {return !d.disabled && d.yAxis == 1})
+                .map(function(d) {
+                    return d.values.map(function(d,i) {
+                        return { x: getX(d), y: getY(d) }
+                    })
+                });
+
+             var series1_bars = data.filter(function(d) {return d.yAxis == 1 && d.type == 'bar'})
                 .map(function(d) {
                     return d.values.map(function(d,i) {
                         return { x: getX(d), y: getY(d) }
@@ -9860,8 +9871,24 @@ nv.models.multiChart = function() {
                 return a.map(function(aVal,i){return {x: aVal.x, y: aVal.y + b[i].y}})
             }).concat([{x:0, y:0}]) : [];
 
-            yScale1 .domain(yDomain1 || d3.extent(d3.merge(series1).concat(extraValue1), function(d) { return d.y } ))
+
+            if(bars1.stacked) {
+                var series1_zipped = d3.zip.apply(this,series1_bars);
+                var series1_stacked = d3.range(series1_zipped.length);
+                series1_zipped.forEach(function(series, i) {
+                    series1_stacked[i] = d3.sum(series,function(d) {return d.y} );
+                });
+
+                yScale1 .domain(yDomain1 || [0, d3.max(series1_stacked)])
+                    .range([0, availableHeight]);
+            }
+            else
+            {
+                 yScale1 .domain(yDomain1 || d3.extent(d3.merge(series1).concat(extraValue1), function(d) { return d.y } ))
                 .range([0, availableHeight]);
+            }
+
+
 
             yScale2 .domain(yDomain2 || d3.extent(d3.merge(series2).concat(extraValue2), function(d) { return d.y } ))
                 .range([0, availableHeight]);
@@ -9889,6 +9916,7 @@ nv.models.multiChart = function() {
             if(dataScatters2.length){d3.transition(scatters2Wrap).call(scatters2);}
 
             xAxis
+                .scale(bars1.xScale())
                 ._ticks( nv.utils.calcTicksX(availableWidth/100, data) )
                 .tickSize(-availableHeight, 0);
 
@@ -9898,6 +9926,7 @@ nv.models.multiChart = function() {
                 .call(xAxis);
 
             yAxis1
+
                 ._ticks( nv.utils.calcTicksY(availableHeight/36, data) )
                 .tickSize( -availableWidth, 0);
 
@@ -9924,13 +9953,24 @@ nv.models.multiChart = function() {
                 chart.update();
             });
 
+            var xTicks = g.select('.nv-x.nv-axis > g').selectAll('g');
+
+            if (reduceXTicks)
+                    xTicks
+                        .filter(function(d,i) {
+                            return i % Math.ceil(data[0].values.length / (availableWidth / 100)) !== 0;
+                        })
+                        .selectAll('text, line')
+                        .style('opacity', 0);
+
+
             if(useInteractiveGuideline){
                 interactiveLayer
                     .width(availableWidth)
                     .height(availableHeight)
                     .margin({left:margin.left, top:margin.top})
                     .svgContainer(container)
-                    .xScale(x);
+                    .xScale(bars1.xScale());
                 wrap.select(".nv-interactive").call(interactiveLayer);
             }
 
@@ -10171,6 +10211,7 @@ nv.models.multiChart = function() {
         noData:    {get: function(){return noData;}, set: function(_){noData=_;}},
         interpolate:    {get: function(){return interpolate;}, set: function(_){interpolate=_;}},
         legendRightAxisHint:    {get: function(){return legendRightAxisHint;}, set: function(_){legendRightAxisHint=_;}},
+        reduceXTicks:      {get: function(){return reduceXTicks;}, set: function(_){reduceXTicks=_;}},
 
         // options that require extra logic in the setter
         margin: {get: function(){return margin;}, set: function(_){
@@ -12743,6 +12784,10 @@ nv.models.scatter = function() {
 
                 // inject series and point index for reference into voronoi
                 if (useVoronoi === true) {
+                    
+                    // nuke all voronoi paths on reload and recreate them
+                    wrap.select('.nv-point-paths').selectAll('path').remove();
+                    
                     var vertices = d3.merge(data.map(function(group, groupIndex) {
                             return group.values
                                 .map(function(point, pointIndex) {
@@ -12790,8 +12835,6 @@ nv.models.scatter = function() {
                         }
                     });
 
-                    // nuke all voronoi paths on reload and recreate them
-                    wrap.select('.nv-point-paths').selectAll('path').remove();
                     var pointPaths = wrap.select('.nv-point-paths').selectAll('path').data(voronoi);
                     var vPointPaths = pointPaths
                         .enter().append("svg:path")
