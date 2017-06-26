@@ -98,6 +98,13 @@ nv.models.multiChart = function() {
                     })
                 });
 
+            var series1_lines = data.filter(function(d) {return !d.disabled && d.yAxis == 1 && d.type == 'line'})
+                .map(function(d) {
+                    return d.values.map(function(d,i) {
+                        return { x: getX(d), y: getY(d) }
+                    })
+                });
+
             var series2 = data.filter(function(d) {return !d.disabled && d.yAxis == 2})
                 .map(function(d) {
                     return d.values.map(function(d,i) {
@@ -223,13 +230,19 @@ nv.models.multiChart = function() {
 
 
             if(bars1.stacked) {
+
+                var lines_max = d3.max(d3.merge(series1_lines), function(d) { return d.y });
+
                 var series1_zipped = d3.zip.apply(this,series1_bars);
                 var series1_stacked = d3.range(series1_zipped.length);
                 series1_zipped.forEach(function(series, i) {
                     series1_stacked[i] = d3.sum(series,function(d) {return d.y} );
                 });
 
-                yScale1 .domain(yDomain1 || [0, d3.max(series1_stacked)])
+               var bar_max = d3.max(series1_stacked);
+               console.log(lines_max); 
+
+                yScale1 .domain(yDomain1 || [0, d3.max([bar_max, lines_max])])
                     .range([0, availableHeight]);
             }
             else
